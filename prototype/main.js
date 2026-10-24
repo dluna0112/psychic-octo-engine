@@ -102,6 +102,43 @@
 
   const ROOM_LABEL = { combat: 'a skirmish', rest: 'the hollow', boss: 'the Sunken Mother' };
 
+  function foesHtml() {
+    const cards = run.combat.foes.map((f) => `
+      <div class="member ${f.hp > 0 ? '' : 'fallen'}">
+        <strong>${esc(f.name)}</strong>
+        ${f.hp > 0 ? '' : '<span class="muted">fallen</span>'}
+        <div class="bars">${bar('HP', f.hp, f.maxHp, 'hp')}</div>
+      </div>`).join('');
+    return `<h2>Enemies · round ${run.combat.round}</h2><div class="roster">${cards}</div>`;
+  }
+
+  // The actions for the Sprout whose turn it is.
+  function fightActions() {
+    const c = run.combat;
+    const u = c.awaiting;
+    if (!u) return '<p class="muted">The enemies move…</p>';
+
+    const ab = W.abilityOf(u);
+    const ready = u.cooldown === 0;
+    let out = `<h3>${esc(u.name)}'s turn</h3>`;
+    out += c.foes.map((f, i) => f.hp > 0
+      ? `<button data-act="attack" data-target="${i}">Attack ${esc(f.name)}</button>`
+      : '').join('');
+    out += '<button data-act="guard">Guard</button>';
+    if (ab) {
+      const wait = ready ? '' : ` (${u.cooldown} turn${u.cooldown === 1 ? '' : 's'})`;
+      out += `<p class="muted">${esc(ab.name)}: ${esc(ab.text)}${esc(wait)}</p>`;
+      if (ab.id === 'bark') {
+        out += `<button data-act="ability" ${ready ? '' : 'disabled'}>${esc(ab.name)}</button>`;
+      } else {
+        out += c.foes.map((f, i) => f.hp > 0
+          ? `<button data-act="ability" data-target="${i}" ${ready ? '' : 'disabled'}>${esc(ab.name)} → ${esc(f.name)}</button>`
+          : '').join('');
+      }
+    }
+    return out;
+  }
+
   function renderRun() {
     const type = run.rooms[run.index];
     const pips = run.rooms.map((r, i) => {
@@ -123,7 +160,9 @@
       : '';
 
     let actions = '';
-    if (run.state === 'ready') {
+    if (run.state === 'fighting') {
+      actions = fightActions();
+    } else if (run.state === 'ready') {
       actions = `<button data-act="enter">Enter ${ROOM_LABEL[type]}</button>
                  <button data-act="retreat" class="danger">Retreat</button>`;
     } else if (run.state === 'cleared' && run.offered) {
@@ -146,6 +185,7 @@
         <h1>The Depths</h1>
         <div class="pips">${pips}</div>
       </header>
+      ${run.state === 'fighting' ? foesHtml() : ''}
       <h2>Party</h2>
       <div class="roster">${party}</div>
       ${boons}
@@ -153,7 +193,7 @@
       <div class="panel">
         <ol class="log">${run.log.map((l) => `<li>${esc(l)}</li>`).join('')}</ol>
       </div>
-      <h2>${run.state === 'ready' ? 'Next room' : 'Choices'}</h2>
+      <h2>${run.state === 'ready' ? 'Next room' : run.state === 'fighting' ? 'Your move' : 'Choices'}</h2>
       <div class="row" style="display:block">${actions}</div>`;
   }
 
@@ -172,6 +212,8 @@
       note = result.ok ? '' : result.msg;
     } else if (btn.dataset.boon) {
       W.takeBoon(run, btn.dataset.boon);
+    } else if (['attack', 'guard', 'ability'].indexOf(btn.dataset.act) !== -1) {
+      W.act(run, btn.dataset.act, Number(btn.dataset.target), Math.random);
     } else if (btn.dataset.act === 'descend') {
       run = W.startRun(save);
       note = '';

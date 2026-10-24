@@ -10,6 +10,7 @@
   const HESITATE_AT = 50;
   const BRITTLE_AT = 80;
   const OVERWHELM_AT = 100;
+  const MAX_ROUNDS = 60;
   const NAMES = ['Mira', 'Bramble', 'Okto', 'Fen', 'Sorrel', 'Wick', 'Pip', 'Hollis', 'Quill', 'Ash'];
 
   const ENEMIES = [
@@ -150,21 +151,27 @@
     return save;
   }
 
-  // ---- Expedition ---------------------------------------------------------
+  // ---- Combat -------------------------------------------------------------
+  //
+  // Each round, every living unit acts once in speed order. Enemies act on
+  // their own. When a Sprout's turn comes up, the fight pauses in
+  // run.combat.awaiting until the player calls act().
 
-  function enemyFrom(t) {
-    return { name: t.name, hp: t.hp, maxHp: t.hp, atk: t.atk, guard: t.guard, spd: t.spd, enemy: true };
-  }
-
-  function pickFoes(rng) {
-    const count = 2 + Math.floor(rng() * 2);
-    const foes = [];
-    for (let i = 0; i < count; i++) foes.push(enemyFrom(pick(rng, ENEMIES)));
-    return foes;
+  // Branch abilities. Each one has a cooldown counted in the Sprout's own turns.
+  function abilityOf(u) {
+    if (u.branch === 'Mosswarden') {
+      return { id: 'bark', name: 'Bark Wall', text: 'Guard +2 and draw every enemy attack until their next turn.', cooldown: 2 };
+    }
+    if (u.branch === 'Thornrunner') {
+      return { id: 'dash', name: 'Thorn Dash', text: 'Strike a chosen foe with +4 Attack and a 50% critical chance.', cooldown: 2 };
+    }
+    return null;
   }
 
   function guardOf(u) {
-    return Math.max(0, u.guard - (u.affliction === 'Brittle' ? 2 : 0));
+    const brittle = u.affliction === 'Brittle' ? 2 : 0;
+    const braced = u.guardUp ? 2 : 0;
+    return Math.max(0, u.guard + braced - brittle);
   }
 
   function critChance(u) {
@@ -188,9 +195,12 @@
     }
   }
 
-  function strike(run, attacker, target, rng) {
-    const crit = rng() < critChance(attacker);
-    const atk = attacker.atk + (!attacker.enemy && hasBoon(run, 'keen') ? 3 : 0);
+  function strike(run, attacker, target, rng, opts) {
+    opts = opts || {};
+    const chance = opts.crit !== undefined ? opts.crit : critChance(attacker);
+    const crit = rng() < chance;
+    const keen = !attacker.enemy && hasBoon(run, 'keen') ? 3 : 0;
+    const atk = attacker.atk + keen + (opts.bonusAtk || 0);
     let dmg = Math.max(1, atk - guardOf(target));
     if (crit) dmg *= 2;
     target.hp = Math.max(0, target.hp - dmg);
@@ -203,8 +213,8 @@
       say(run, target.name + ' falls.');
       return;
     }
-    if (!run.rootUsed && hasBoon(run, 'root')) {
-      run.rootUsed = true;
+    if (!run.combat.rootUsed && hasBoon(run, 'root')) {
+      run.combat.rootUsed = true;
       target.hp = 1;
       say(run, 'Stubborn Root holds. ' + target.name + ' stays on their feet at 1 HP.');
       return;
@@ -213,30 +223,133 @@
     run.party.filter(up).forEach((p) => addStress(run, p, 12));
   }
 
-  function fight(run, foes, rng) {
-    const sides = () => run.party.some(up) && foes.some(up);
-    for (let round = 0; round < 40 && sides(); round++) {
-      const order = run.party.concat(foes).filter(up).sort((a, b) => b.spd - a.spd);
-      for (const u of order) {
-        if (!sides()) return;
-        if (!up(u)) continue;
+  function enemyTurn(run, e, rng) {
+    const taunt = run.combat.taunt;
+    const target = taunt && up(taunt) ? taunt : pick(rng, run.party.filter(up));
+    strike(run, e, target, rng);
+  }
 
-        if (u.enemy) {
-          strike(run, u, pick(rng, run.party.filter(up)), rng);
-          continue;
-        }
-        if (u.overwhelmed) {
-          u.overwhelmed = false;
-          say(run, u.name + ' freezes, overwhelmed.');
-          continue;
-        }
-        if (u.stress >= HESITATE_AT && rng() < 0.25) {
-          say(run, u.name + ' hesitates.');
-          continue;
-        }
-        strike(run, u, pick(rng, foes.filter(up)), rng);
+  // Runs automatic turns until a Sprout needs a decision or the fight ends.
+  function playOn(run, rng) {
+    const c = run.combat;
+    c.awaiting = null;
+
+    while (true) {
+      if (!run.party.some(up) || !c.foes.some(up)) return finishCombat(run, rng);
+      if (c.round >= MAX_ROUNDS) {
+        say(run, 'The fight drags on past its limit. The party falls back.');
+        run.combat = null;
+        run.state = 'retreated';
+        return run;
       }
+      if (!c.queue.length) {
+        c.round += 1;
+        c.queue = run.party.concat(c.foes).filter(up).sort((a, b) => b.spd - a.spd);
+      }
+
+      const u = c.queue.shift();
+      if (!up(u)) continue;
+      if (u.enemy) {
+        enemyTurn(run, u, rng);
+        continue;
+      }
+
+      // Guard and Bark Wall last until this Sprout's next turn.
+      u.guardUp = false;
+      if (c.taunt === u) c.taunt = null;
+      if (u.cooldown > 0) u.cooldown -= 1;
+      if (u.overwhelmed) {
+        u.overwhelmed = false;
+        say(run, u.name + ' freezes, overwhelmed.');
+        continue;
+      }
+      if (u.stress >= HESITATE_AT && rng() < 0.25) {
+        say(run, u.name + ' hesitates.');
+        continue;
+      }
+      c.awaiting = u;
+      run.state = 'fighting';
+      return run;
     }
+  }
+
+  // The player's decision for the Sprout whose turn it is.
+  //   action: 'attack' | 'guard' | 'ability'
+  //   targetIndex: index into run.combat.foes (used by attack and dash)
+  // Invalid choices change nothing and return the same state.
+  function act(run, action, targetIndex, rng) {
+    rng = rng || Math.random;
+    const c = run.combat;
+    if (!c || !c.awaiting) return run;
+
+    const u = c.awaiting;
+    const foe = c.foes[targetIndex];
+    const foeOk = !!foe && up(foe);
+    const ab = abilityOf(u);
+
+    if (action === 'attack') {
+      if (!foeOk) return run;
+      c.awaiting = null;
+      strike(run, u, foe, rng);
+    } else if (action === 'guard') {
+      c.awaiting = null;
+      u.guardUp = true;
+      say(run, u.name + ' braces.');
+    } else if (action === 'ability') {
+      if (!ab || u.cooldown > 0) return run;
+      if (ab.id === 'dash' && !foeOk) return run;
+      c.awaiting = null;
+      u.cooldown = ab.cooldown;
+      if (ab.id === 'bark') {
+        u.guardUp = true;
+        c.taunt = u;
+        say(run, u.name + ' plants Bark Wall. Enemies must attack them until their next turn.');
+      } else {
+        strike(run, u, foe, rng, { bonusAtk: 4, crit: 0.5 });
+      }
+    } else {
+      return run;
+    }
+
+    return playOn(run, rng);
+  }
+
+  // Ends a fight: rewards and boon offers if the party won, or defeat if it fell.
+  function finishCombat(run, rng) {
+    const foesFought = run.combat.foes.length;
+    run.combat = null;
+
+    if (!run.party.some(up)) {
+      say(run, 'The party has fallen.');
+      run.state = 'defeat';
+      return run;
+    }
+
+    run.party.filter(up).forEach((p) => {
+      p.xp += 6 + 2 * foesFought;
+      if (hasBoon(run, 'warmth')) p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.2));
+    });
+
+    if (run.rooms[run.index] === 'boss') {
+      say(run, BOSS.name + ' is silenced. The Depths grow quiet.');
+      run.state = 'victory';
+      return run;
+    }
+
+    run.offered = offerBoons(run, rng || Math.random);
+    run.state = 'cleared';
+    return run;
+  }
+
+  function enemyFrom(t) {
+    return { name: t.name, hp: t.hp, maxHp: t.hp, atk: t.atk, guard: t.guard, spd: t.spd, enemy: true };
+  }
+
+  function pickFoes(rng) {
+    const count = 2 + Math.floor(rng() * 2);
+    const foes = [];
+    for (let i = 0; i < count; i++) foes.push(enemyFrom(pick(rng, ENEMIES)));
+    return foes;
   }
 
   function offerBoons(run, rng) {
@@ -256,6 +369,8 @@
         const p = clone(s);
         p.hp = p.maxHp;
         p.overwhelmed = false;
+        p.guardUp = false;
+        p.cooldown = 0;
         return p;
       });
     return {
@@ -263,21 +378,20 @@
       rooms: ROOMS.slice(),
       index: 0,
       boons: [],
-      rootUsed: false,
       log: [],
       offered: null,
-      state: 'ready', // ready -> cleared -> ready ... -> victory | defeat | retreated
+      combat: null,
+      state: 'ready', // ready -> fighting -> cleared -> ready ... -> victory | defeat | retreated
     };
   }
 
-  // Resolves the current room. Afterwards the state is 'cleared' (with an
-  // optional boon offer) or a final state.
+  // Starts the current room. Rest resolves at once. A fight starts and runs
+  // until a Sprout needs a decision (state 'fighting').
   function enterRoom(run, rng) {
     if (run.state !== 'ready') return run;
     rng = rng || Math.random;
     const type = run.rooms[run.index];
     run.log = [];
-    run.rootUsed = false;
 
     if (type === 'rest') {
       run.party.filter(up).forEach((p) => {
@@ -290,31 +404,11 @@
     }
 
     const foes = type === 'boss' ? [enemyFrom(BOSS)] : pickFoes(rng);
+    run.combat = { foes: foes, queue: [], round: 0, taunt: null, awaiting: null };
     say(run, type === 'boss'
       ? BOSS.name + ' rises from the water.'
       : 'Enemies emerge: ' + foes.map((f) => f.name).join(', ') + '.');
-    fight(run, foes, rng);
-
-    if (!run.party.some(up)) {
-      say(run, 'The party has fallen.');
-      run.state = 'defeat';
-      return run;
-    }
-
-    run.party.filter(up).forEach((p) => {
-      p.xp += 6 + 2 * foes.length;
-      if (hasBoon(run, 'warmth')) p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.2));
-    });
-
-    if (type === 'boss') {
-      say(run, BOSS.name + ' is silenced. The Depths grow quiet.');
-      run.state = 'victory';
-      return run;
-    }
-
-    run.offered = offerBoons(run, rng);
-    run.state = 'cleared';
-    return run;
+    return playOn(run, rng);
   }
 
   function takeBoon(run, id) {
@@ -349,6 +443,8 @@
       if (up(p)) {
         p.hp = p.maxHp;
         p.overwhelmed = false;
+        delete p.guardUp;
+        delete p.cooldown;
         evolveIfReady(p);
         save.roster[idx] = p;
       } else {
@@ -365,6 +461,7 @@
     ROOMS: ROOMS,
     BOONS: BOONS,
     boon: (id) => BOONS.find((b) => b.id === id),
+    abilityOf: abilityOf,
     makeRng: makeRng,
     newSave: newSave,
     fruitYield: fruitYield,
@@ -373,6 +470,7 @@
     evolveIfReady: evolveIfReady,
     startRun: startRun,
     enterRoom: enterRoom,
+    act: act,
     takeBoon: takeBoon,
     advance: advance,
     retreat: retreat,

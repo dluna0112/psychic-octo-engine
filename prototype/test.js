@@ -9,7 +9,10 @@ function playRun(seed) {
   let steps = 0;
   while (run.state !== 'victory' && run.state !== 'defeat' && steps++ < 100) {
     if (run.state === 'ready') W.enterRoom(run, rng);
-    else if (run.state === 'cleared') {
+    else if (run.state === 'fighting') {
+      // A simple bot: every Sprout attacks the first living foe.
+      W.act(run, 'attack', run.combat.foes.findIndex((f) => f.hp > 0), rng);
+    } else if (run.state === 'cleared') {
       if (run.offered) W.takeBoon(run, run.offered[0]);
       else W.advance(run);
     }
@@ -87,6 +90,41 @@ function playRun(seed) {
   assert.strictEqual(save.day, 2);
   assert.strictEqual(save.fruit, 2 + W.fruitYield(save));
   assert.strictEqual(W.gardenAct(save, id, 'hush').ok, true);
+}
+
+// Combat is player-driven: a fight pauses for the first Sprout's decision.
+{
+  const rng = W.makeRng(11);
+  const save = W.newSave(rng);
+  const run = W.startRun(save);
+  W.enterRoom(run, rng);
+  assert.strictEqual(run.state, 'fighting');
+  assert.ok(run.combat.awaiting, 'a Sprout should be awaiting a decision');
+
+  // Invalid choices change nothing.
+  const before = JSON.stringify(run.combat.foes);
+  W.act(run, 'attack', 99, rng);
+  assert.strictEqual(JSON.stringify(run.combat.foes), before);
+  assert.ok(run.combat.awaiting, 'invalid act should keep the decision open');
+  W.act(run, 'ability', 0, rng);
+  assert.ok(run.combat.awaiting, 'Seedlings have no ability');
+}
+
+// Abilities: Bark Wall taunts, and has a cooldown.
+{
+  const rng = W.makeRng(5);
+  const u = { name: 'Test', branch: 'Mosswarden', hp: 20, maxHp: 20, atk: 5, guard: 1, spd: 9, stress: 0, cooldown: 0 };
+  assert.strictEqual(W.abilityOf(u).id, 'bark');
+  assert.strictEqual(W.abilityOf({ branch: null }), null);
+  const foe = { name: 'Foe', hp: 50, maxHp: 50, atk: 3, guard: 0, spd: 10, enemy: true };
+  const other = { name: 'Other', branch: null, hp: 20, maxHp: 20, atk: 5, guard: 1, spd: 1, stress: 0, cooldown: 0 };
+  const run = { party: [u, other], combat: { foes: [foe], queue: [], round: 1, taunt: null, awaiting: u }, log: [], boons: [], rooms: ['combat'], index: 0, state: 'fighting' };
+  W.act(run, 'ability', 0, rng);
+  assert.ok(u.cooldown > 0, 'Bark Wall should start a cooldown');
+  // The foe acts before Mosswarden's next turn, so every foe attack must hit Test.
+  const hits = run.log.filter((l) => l.indexOf('Foe hits') === 0);
+  assert.ok(hits.length > 0, 'the foe should attack after Bark Wall');
+  hits.forEach((l) => assert.ok(l.indexOf('Foe hits Test') === 0, 'taunt should redirect: ' + l));
 }
 
 console.log('all prototype tests passed');
