@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wyrdgarden Prototype</title>
+  <style>
+    :root {
+      --ink: #0d0c17;
+      --panel: #171529;
+      --line: #2c2846;
+      --text: #e8e4f5;
+      --muted: #8e88ad;
+      --glow: #9fe3c1;
+      --blight: #c26bd1;
+      --danger: #e0676b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--ink);
+      color: var(--text);
+      font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main { max-width: 960px; margin: 0 auto; padding: 16px; }
+    h1 { margin: 0; font-size: 26px; letter-spacing: 0.04em; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin: 24px 0 10px; }
+    h3 { font-size: 14px; color: var(--muted); margin: 16px 0 8px; }
+    header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .stats, .muted { color: var(--muted); font-size: 13px; }
+    .note { background: var(--panel); border-left: 3px solid var(--glow); padding: 8px 12px; border-radius: 4px; }
+    .roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+    .sprout, .member, .boon, .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+    .bars { margin: 8px 0; display: grid; gap: 6px; }
+    .bar { position: relative; height: 18px; background: #0b0a14; border-radius: 4px; overflow: hidden; }
+    .bar span { position: absolute; inset: 0 auto 0 0; background: var(--glow); opacity: 0.55; }
+    .bar.stress span { background: var(--blight); }
+    .bar.xp span { background: #8fb8ff; }
+    .bar em { position: relative; font-style: normal; font-size: 12px; padding: 0 6px; line-height: 18px; }
+    .care { margin: 4px 0 8px; }
+    .tag { display: inline-block; font-size: 12px; border: 1px solid var(--blight); color: var(--blight); border-radius: 4px; padding: 0 6px; margin: 2px 4px 2px 0; }
+    .tag.virtue { border-color: var(--glow); color: var(--glow); }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+    button {
+      background: #2a2650;
+      color: var(--text);
+      border: 1px solid #4a4480;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:hover:not(:disabled) { background: #36306a; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.ghost { background: transparent; }
+    button.danger { border-color: var(--danger); color: var(--danger); }
+    .boon { display: flex; flex-direction: column; text-align: left; gap: 4px; margin-bottom: 8px; width: 100%; }
+    .boon span { color: var(--muted); font-size: 13px; }
+    .pips { display: flex; gap: 8px; font-size: 18px; color: var(--muted); }
+    .pip.done { color: var(--glow); }
+    .pip.now { color: var(--text); }
+    .fallen { opacity: 0.5; }
+    .log { list-style: none; padding: 0; margin: 0; max-height: 320px; overflow-y: auto; font-size: 14px; }
+    .log li { padding: 4px 0; border-bottom: 1px solid var(--line); }
+    .memorials { padding-left: 18px; margin: 0; }
+    label { font-size: 13px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main id="app"></main>
+  <script src="logic.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
