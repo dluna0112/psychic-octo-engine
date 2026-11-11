@@ -73,6 +73,9 @@
 .xp-bar.st.high > i { background: linear-gradient(180deg, #ff9ac6, #ff5fa2); }
 .xp-bar.st::after { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 1.5px; background: rgba(255, 255, 255, 0.45); }
 .xp-mem-nums { font-size: 11px; font-weight: 800; color: var(--dim); font-variant-numeric: tabular-nums; display: flex; justify-content: space-between; gap: 6px; }
+.xp-mem-nums em { font-style: normal; }
+.xp-n-hp { color: #a6e8ae; }
+.xp-n-st { color: #c9a8ff; }
 .xp-badge { font-size: 10px; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; flex: none; }
 .xp-badge.bad { background: #c8323c; color: #fff0f0; }
 .xp-badge.good { background: #d9a520; color: #2e1d00; }
@@ -153,6 +156,7 @@
   .xp-mem { grid-template-columns: 1fr; justify-items: stretch; padding: 6px 8px 8px; gap: 3px; border-radius: 16px; }
   .xp-mem canvas { display: none; }
   .xp-mem-name { font-size: 12.5px; }
+  .xp-mem-nums em { display: none; }
   .xp-map-wrap { bottom: calc(112px + var(--safe-b)); }
   .xp-floor-txt b { font-size: 14px; }
   .xp-cheer { min-width: 180px; min-height: 60px; font-size: 19px; }

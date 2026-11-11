@@ -96,7 +96,7 @@ const X = {
     this.speedBtn.innerHTML = `${ICON.speed}<span>${this.speed}×</span>`;
     this.speedBtn.setAttribute('aria-pressed', String(this.speed === 2));
     this.speedBtn.setAttribute('aria-label', `Battle speed ${this.speed}x`);
-    this.speedBtn.hidden = this.view !== 'battle';
+    this.speedBtn.style.display = this.view === 'battle' ? '' : 'none';
   },
 
   updateTop(round) {
@@ -119,7 +119,7 @@ const X = {
   renderParty() {
     const P = this.partyEl;
     P.innerHTML = '';
-    P.hidden = this.view === 'battle';
+    P.style.display = this.view === 'battle' ? 'none' : '';
     P.style.setProperty('--n', this.run.party.length);
     for (const m of this.run.party) {
       const card = h('div', `panel xp-mem${m.dead ? ' is-dead' : ''}`);
@@ -140,7 +140,7 @@ const X = {
       const bars = h('div', 'xp-mem-bars', `
         <div class="xp-bar hp${hpK < 0.3 ? ' low' : ''}" role="img" aria-label="HP ${m.hp} of ${m.maxHp}"><i style="width:${hpK * 100}%"></i></div>
         <div class="xp-bar st${m.stress >= 70 ? ' high' : ''}" role="img" aria-label="Stress ${m.stress} of 100"><i style="width:${m.stress}%"></i></div>
-        <div class="xp-mem-nums">${m.dead ? '<span>Fallen</span>' : `<span>HP ${m.hp}/${m.maxHp}</span><span>Stress ${m.stress}</span>`}</div>`);
+        <div class="xp-mem-nums">${m.dead ? '<span>Fallen</span>' : `<span class="xp-n-hp"><em>HP </em>${m.hp}/${m.maxHp}</span><span class="xp-n-st"><em>Stress </em>${m.stress}</span>`}</div>`);
       card.append(cv, info, bars);
       P.append(card);
     }

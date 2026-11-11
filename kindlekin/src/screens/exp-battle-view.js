@@ -54,7 +54,7 @@ export function createBattleView({ battle, floor, cb = {} }) {
   };
   const float = (a, text, o = {}) => {
     const p = pos(a);
-    floats.push({ x: p.x + (o.dx || 0), y: p.top - 6 + (o.dy || 0), text, color: o.color || '#fff', size: o.size || 26,
+    floats.push({ x: p.x + (o.dx || 0), y: p.top - 30 + (o.dy || 0), text, color: o.color || '#fff', size: o.size || 26,
       born: clock, life: o.life || 1.1, sub: o.sub || null, subColor: o.subColor || '#fff' });
   };
 
@@ -113,7 +113,7 @@ export function createBattleView({ battle, floor, cb = {} }) {
           const t = Math.max(lastT, ev.reason === 'win' || ev.reason === 'stalemate' ? cursor : lastT);
           at(t + 0.02, () => {
             a.d.stress = ev.total;
-            if (Math.abs(ev.amount) >= 5) float(a, `${ev.amount > 0 ? '+' : ''}${ev.amount} stress`, { color: ev.amount > 0 ? '#c9a2ff' : '#9fe8c6', size: 15, dy: 22, life: 1.2 });
+            if (Math.abs(ev.amount) >= 5 && ev.reason !== 'cheer' && ev.reason !== 'win') float(a, `${ev.amount > 0 ? '+' : ''}${ev.amount} stress`, { color: ev.amount > 0 ? '#c9a2ff' : '#9fe8c6', size: 15, dy: 30, dx: 0, life: 1.2 });
           });
           break;
         }
@@ -151,7 +151,7 @@ export function createBattleView({ battle, floor, cb = {} }) {
         case 'mend': {
           const src = byKey[ev.src], dst = byKey[ev.dst];
           mendGroup = true;
-          at(cursor, () => { dst.d.hp = Math.min(dst.d.maxHp, dst.d.hp + ev.amount); float(dst, `+${ev.amount}`, { color: '#8fe07a', size: 22, dx: (src.slot - 1) * 18 }); dst.heal = clock; });
+          at(cursor, () => { dst.d.hp = Math.min(dst.d.maxHp, dst.d.hp + ev.amount); float(dst, `+${ev.amount}`, { color: '#8fe07a', size: 22, dx: (src.slot - 1) * 34, dy: -src.slot * 16 }); dst.heal = clock; });
           lastT = cursor;
           break;
         }
@@ -164,7 +164,7 @@ export function createBattleView({ battle, floor, cb = {} }) {
         case 'cheer': {
           at(cursor, () => {
             cheerGlow = 1;
-            for (const a of actors) if (a.side === 'party' && !a.d.dead) float(a, 'Cheer!', { color: '#ffd45a', size: 20, dy: -18 });
+            for (const a of actors) if (a.side === 'party' && !a.d.dead) float(a, 'Cheer!', { color: '#ffd45a', size: 22, dy: -44, life: 1.3 });
           });
           lastT = cursor;
           cursor += 0.25;
@@ -265,8 +265,12 @@ export function createBattleView({ battle, floor, cb = {} }) {
     c.restore();
   }
 
-  function draw(c, w, h, t) {
+  function draw(c, W, H, t) {
+    const V = viewport(W, H), w = V.w, h = V.h;
     lastW = w; lastH = h;
+    c.fillStyle = '#07060c'; c.fillRect(0, 0, W, H);
+    c.save();
+    applyViewport(c, V);
     c.save();
     if (shake > 0) { const s = shake * shake * 10; c.translate((Math.random() - 0.5) * s, (Math.random() - 0.5) * s); }
     drawDungeon(c, w, h, t, floor);
@@ -309,8 +313,6 @@ export function createBattleView({ battle, floor, cb = {} }) {
       c.restore();
     }
     for (const { a, p } of list) if (!a.d.dead) drawBars(c, a, p.x, p.top, p.sw);
-    const boss = actors.find((a) => a.boss);
-    if (boss) drawBossBar(c, boss, w);
     // wail pulse
     if (pulse > 0) {
       const g = c.createRadialGradient(w * 0.7, h * 0.55, 10, w * 0.7, h * 0.55, Math.max(w, h) * (0.3 + (1 - pulse) * 0.9));
@@ -335,6 +337,9 @@ export function createBattleView({ battle, floor, cb = {} }) {
       }
       c.restore();
     }
+    c.restore();
+    const boss = actors.find((a) => a.boss);
+    if (boss) drawBossBar(c, boss, W);
   }
 
   return {
@@ -353,11 +358,32 @@ function roundRect(c, x, y, w, h, r) {
 }
 
 /** Idle party standing in the corridor (map / overlays). */
-export function drawPartyIdle(c, w, h, t, floor, party, opts = {}) {
+/**
+ * Phones (portrait) get a zoomed view: the scene is laid out in a shorter virtual canvas so feet
+ * stay above the bottom controls, then scaled up around the fighting area.
+ */
+export function viewport(W, H) {
+  if (W / H >= 0.85) return { w: W, h: H, z: 1, fx: 0, fy: 0 };
+  const h = H - 100, z = Math.min(1.45, 1 + (0.85 - W / H) * 0.9);
+  return { w: W, h, z, fx: W / 2, fy: h * 0.72 };
+}
+export function applyViewport(c, V) {
+  if (V.z === 1) return;
+  c.translate(V.fx, V.fy); c.scale(V.z, V.z); c.translate(-V.fx, -V.fy);
+}
+
+export function drawPartyIdle(c, W, H, t, floor, party, opts = {}) {
+  const V = viewport(W, H);
+  let w = V.w, h = V.h;
+  c.fillStyle = '#07060c'; c.fillRect(0, 0, W, H);
+  c.save();
+  applyViewport(c, V);
   drawDungeon(c, w, h, t, floor);
   const list = party.map((m, i) => ({ m, p: groundToScreen(DUNGEON_SPOTS.party[i].u, DUNGEON_SPOTS.party[i].v, w, h, 'dungeon'), i }))
     .filter((x) => !x.m.dead).sort((a, b) => a.p.y - b.p.y);
   for (const { m, p, i } of list) drawCreature(c, m.sprite, p.x, p.y, { scale: p.scale, t, facing: 1, mood: mood(m), seed: i });
+  c.restore();
+  w = W; h = H;
   if (opts.dim) {
     const g = c.createLinearGradient(0, 0, 0, h);
     g.addColorStop(0, `rgba(8,4,16,${opts.dim})`); g.addColorStop(1, `rgba(8,4,16,${opts.dim * 0.55})`);

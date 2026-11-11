@@ -103,6 +103,7 @@ export function enterNode(run, lane = 0) {
   const node = opts[lane] || opts[0];
   if (!node) throw new Error('no node to enter');
   run.current = node;
+  run.floorReached = Math.max(run.floorReached, run.floor);
   run.path.push({ floor: run.floor, step: run.step, lane: node.lane });
   const events = [];
   const k = STRESS_KEY[node.type];

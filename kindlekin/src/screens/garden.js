@@ -468,13 +468,17 @@ function openMemorial() {
 
 function showResults(sum) {
   const win = sum.outcome === 'cleared';
+  const lost = sum.outcome === 'wiped';
+  const [badge, title, line] = win ? ['Expedition cleared', 'The Warden falls!', 'Your kin come home tired, proud and a little singed.']
+    : lost ? ['Party lost', 'The Gloom took them', 'The garden is quieter tonight.']
+    : ['Party returned', 'The Warden withdrew', 'No victory tonight, but your kin made it home.'];
   const fallen = sum.fallen || [];
   const legacy = sum.hatchedLegacy || [];
   const m = modal(`
     <div class="result-hero">
-      <span class="badge ${win ? 'win' : 'lose'}">${win ? 'Expedition cleared' : 'Party lost'}</span>
-      <h2>${win ? 'The Warden falls!' : 'The Gloom took them'}</h2>
-      <p class="muted">${win ? 'Your kin come home tired, proud and a little singed.' : 'The garden is quieter tonight.'}</p>
+      <span class="badge ${win ? 'win' : 'lose'}">${badge}</span>
+      <h2>${title}</h2>
+      <p class="muted">${line}</p>
     </div>
     <div class="stats-row">
       <div class="stat-box"><b>${sum.floorReached ?? '?'}</b><small>Floor reached</small></div>
