@@ -11,7 +11,7 @@
   let meta = Object.assign(CF.newMeta(), store.get('cf-meta') || {});
   let S = store.get('cf-run');
   if (S && S.v !== 1) S = null;
-  const ui = { breedFrom: null, shopPick: null, starters: [], legacy: null, speed: 1, playing: null, timer: null };
+  const ui = { ask: null, breedFrom: null, shopPick: null, starters: [], legacy: null, speed: 1, playing: null, timer: null };
 
   function save() {
     if (S) Object.assign(meta.dex, S.seen);
@@ -250,11 +250,21 @@
       <p><button class="primary" data-a="close">Got it</button></p>`);
   }
 
+  function askModal() {
+    const a = ui.ask;
+    ui.playing = null;
+    modal(`<h3>${esc(a.title)}</h3>${a.msg ? `<p>${esc(a.msg)}</p>` : ''}
+      ${a.input != null ? `<p><input id="ask-input" maxlength="20" value="${esc(a.input)}" style="width:100%"></p>` : ''}
+      <div class="row"><button class="primary" data-a="yes">${esc(a.ok || 'Yes')}</button><button data-a="no">Cancel</button></div>`);
+  }
+  function ask(o) { ui.ask = o; }
+
   function render() {
     hud();
-    if (!S) { modal(''); return title(); }
-    if (S.phase === 'starter') { modal(''); return starterScreen(); }
+    if (!S) { if (ui.ask) return askModal(); modal(''); return title(); }
+    if (S.phase === 'starter') { starterScreen(); return ui.ask ? askModal() : modal(''); }
     ranch();
+    if (ui.ask) return askModal();
     if (S.phase === 'battle') return battleScreen();
     ui.playing = null;
     if (S.notices.length) return noticeModal(S.notices[0]);
@@ -276,16 +286,18 @@
     team(d) { if (!CF.toggleTeam(S, +d.id)) toast(`Lineup is full (${CF.TEAM_CAP}). Bench someone first.`); },
     breed(d) { ui.breedFrom = ui.breedFrom === +d.id ? null : +d.id; },
     breedwith(d) { CF.breed(S, ui.breedFrom, +d.id); ui.breedFrom = null; },
-    release(d) { const m = CF.mon(S, +d.id); if (confirm(`Release ${m.name} for 10 🍿? This is permanent.`)) CF.release(S, +d.id); },
-    rename(d) { const m = S && CF.mon(S, +d.id); if (!m) return; const n = prompt('Rename this Tropeling:', m.name); if (n && n.trim()) m.name = n.trim().slice(0, 20); },
+    release(d) { const m = CF.mon(S, +d.id); ask({ title: `Release ${m.name}?`, msg: 'You get 10 🍿. This is permanent.', ok: 'Release', yes: () => CF.release(S, m.id) }); },
+    rename(d) { const m = S && CF.mon(S, +d.id); if (!m) return; ask({ title: 'Rename this Tropeling', input: m.name, ok: 'Rename', yes: (n) => { if (n && n.trim()) m.name = n.trim().slice(0, 20); } }); },
+    yes() { const a = ui.ask; const el = $('#ask-input'); ui.ask = null; a.yes(el ? el.value : undefined); },
+    no() { ui.ask = null; },
     skill(d) { toast(`${SKILLS[d.id].name}: ${SKILLS[d.id].desc}`); return false; },
     go(d) {
       const o = S.options[+d.i];
       if (o.team && !S.team.length) return toast('Put at least one Tropeling in the lineup.');
+      const run = () => { ui.breedFrom = null; CF.choose(S, +d.i); };
       const idle = S.roster.filter((m) => !m.acted).length;
-      if (idle && !confirm(`${idle} Tropeling(s) have not acted today. Continue anyway?`)) return false;
-      ui.breedFrom = null;
-      CF.choose(S, +d.i);
+      if (idle) ask({ title: 'Skip the unused actions?', msg: `${idle} Tropeling(s) have not acted today.`, ok: 'Continue anyway', yes: run });
+      else run();
     },
     speed() { ui.speed = ui.speed === 1 ? 2 : ui.speed === 2 ? 4 : 1; document.querySelector('[data-a=speed]').textContent = `Speed ×${ui.speed}`; return false; },
     skip() { ui.finishBattle(); return false; },
@@ -297,7 +309,12 @@
     leave() { ui.shopPick = null; CF.leave(S); },
     event(d) { CF.eventChoice(S, +d.i); },
     toTitle() { S = null; },
-    abandon() { if (!S || confirm('Abandon this run and return to the title screen?')) { clearTimeout(ui.timer); ui.playing = null; S = null; } else return false; },
+    abandon() {
+      const quit = () => { clearTimeout(ui.timer); ui.playing = null; S = null; };
+      if (!S) return quit();
+      clearTimeout(ui.timer);
+      ask({ title: 'Abandon this run?', msg: 'You return to the title screen and this season is lost.', ok: 'Abandon', yes: quit });
+    },
     dex() { dexModal(); return false; },
     help() { helpModal(); return false; },
     close() {},
