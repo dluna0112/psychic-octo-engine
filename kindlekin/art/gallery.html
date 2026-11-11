@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kindlekin Art Gallery</title>
+<style>
+  :root {
+    --bg: #171322; --panel: #221c33; --panel2: #2b2441; --ink: #f4eee4; --dim: #a79fbd; --line: #3a3156;
+    --fire: #ff8f3d; --water: #5cbdf0; --leaf: #86d662; --shadow: #9a7fe0; --gold: #ffd45a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body { font: 15px/1.5 ui-rounded, "Nunito", "Segoe UI", system-ui, sans-serif; padding: 20px 16px 60px; }
+  main { max-width: 1200px; margin: 0 auto; }
+  header h1 { font-size: clamp(26px, 5vw, 40px); margin: 0 0 4px; letter-spacing: 0.01em; text-wrap: balance; }
+  header h1 span { color: var(--gold); }
+  header p { margin: 0; color: var(--dim); max-width: 62ch; }
+  section { margin-top: 34px; }
+  h2 { font-size: 19px; margin: 0 0 4px; }
+  .note { color: var(--dim); margin: 0 0 14px; font-size: 14px; max-width: 70ch; }
+  canvas { display: block; width: 100%; }
+  .sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .cell { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; min-width: 0; }
+  .cell canvas { height: 190px; background: radial-gradient(120% 90% at 50% 100%, var(--tint, #3a3156) 0%, var(--panel2) 62%); }
+  .cell figcaption { padding: 7px 10px 9px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; border-top: 1px solid var(--line); }
+  .cell b { font-size: 14px; }
+  .cell small { color: var(--dim); font-size: 12px; text-transform: capitalize; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--c); align-self: center; }
+  .trees { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .tree { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; min-width: 0; }
+  .tree canvas { height: 400px; }
+  .row4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  @media (max-width: 640px) { .row4 { grid-template-columns: repeat(2, 1fr); } }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
+  select, button { font: inherit; color: var(--ink); background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; cursor: pointer; }
+  button[aria-pressed="true"] { background: var(--gold); color: #2a1b33; border-color: var(--gold); font-weight: 700; }
+  button:focus-visible, select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .scene { border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #000; }
+  .scene canvas { aspect-ratio: 16 / 9; }
+  @media (max-width: 640px) { .scene canvas { aspect-ratio: 1 / 1; } }
+  h3 { font-size: 14px; color: var(--dim); font-weight: 600; margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Kindlekin <span>art gallery</span></h1>
+    <p>Every sprite and backdrop here is drawn live with the Canvas 2D API from <code>src/sprites.js</code> and <code>src/scenes.js</code>. No image files.</p>
+  </header>
+
+  <section id="sheet">
+    <h2>Sprite sheet</h2>
+    <p class="note">All twelve sprites, idling. Each is scaled to fit its cell; the unit height at scale 1 is shown beside the name.</p>
+    <div class="sheet" id="sheetGrid"></div>
+  </section>
+
+  <section id="evo">
+    <h2>Evolution lines</h2>
+    <p class="note">An egg hatches into a baby, which grows along whichever stat you raised most.</p>
+    <div class="trees" id="trees"></div>
+  </section>
+
+  <section id="moods">
+    <h2>Moods and actions</h2>
+    <div class="controls">
+      <label for="moodPick">Creature</label>
+      <select id="moodPick"></select>
+    </div>
+    <h3>Mood</h3>
+    <div class="row4" id="moodRow"></div>
+    <h3>Animation</h3>
+    <div class="row4" id="animRow"></div>
+  </section>
+
+  <section id="garden">
+    <h2>Garden</h2>
+    <p class="note">The hub. Three babies standing at different depths on the ground plane, sorted far to near.</p>
+    <div class="scene"><canvas id="gardenCv"></canvas></div>
+  </section>
+
+  <section id="dungeon">
+    <h2>Dungeon</h2>
+    <div class="controls" id="floorBtns" role="group" aria-label="Dungeon floor"></div>
+    <div class="scene"><canvas id="dungeonCv"></canvas></div>
+  </section>
+</main>
+
+<script type="module">
+import { drawCreature, drawShadow, SPRITE_IDS, SPRITE_META } from '../src/sprites.js';
+import { drawGarden, drawDungeon, groundToScreen, DUNGEON_FLOORS } from '../src/scenes.js';
+
+const qs = new URLSearchParams(location.search);
+const frozen = qs.has('t') ? parseFloat(qs.get('t')) : null;
+const EL = { fire: '#ff8f3d', water: '#5cbdf0', leaf: '#86d662', shadow: '#9a7fe0' };
+const TINT = { fire: '#6a3a2c', water: '#274a72', leaf: '#35592f', shadow: '#3d2a5e' };
+
+// ---- tiny canvas manager: DPR aware, only paints canvases that are on screen
+const views = [];
+const io = 'IntersectionObserver' in window ? new IntersectionObserver((es) => es.forEach((e) => { e.target._vis = e.isIntersecting; }), { rootMargin: '200px' }) : null;
+function view(cv, draw) {
+  cv._vis = true; if (io) io.observe(cv);
+  views.push({ cv, ctx: cv.getContext('2d'), draw });
+  return cv;
+}
+function frame(now) {
+  const t = frozen ?? now / 1000;
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  for (const v of views) {
+    if (!v.cv._vis && frozen == null) continue;
+    const w = v.cv.clientWidth, h = v.cv.clientHeight;
+    if (!w || !h) continue;
+    if (v.cv.width !== Math.round(w * dpr) || v.cv.height !== Math.round(h * dpr)) { v.cv.width = Math.round(w * dpr); v.cv.height = Math.round(h * dpr); }
+    v.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    v.ctx.clearRect(0, 0, w, h);
+    v.draw(v.ctx, w, h, t);
+  }
+  requestAnimationFrame(frame);
+}
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const fit = (id, w, h, pad = 0.82) => Math.min((h * pad) / SPRITE_META[id].h, (w * 0.9) / SPRITE_META[id].w);
+
+// ---- (a) sprite sheet
+const grid = document.getElementById('sheetGrid');
+for (const id of SPRITE_IDS) {
+  const m = SPRITE_META[id];
+  const fig = el('figure', 'cell');
+  fig.style.setProperty('--tint', TINT[m.element] || '#4a4030');
+  const cv = el('canvas'); cv.setAttribute('role', 'img'); cv.setAttribute('aria-label', m.name);
+  fig.append(cv);
+  fig.append(el('figcaption', '', `<b>${m.name}</b><span class="dot" style="--c:${EL[m.element] || '#e8d6b0'}"></span><small>${m.role} · ${m.h}u</small>`));
+  grid.append(fig);
+  view(cv, (ctx, w, h, t) => {
+    const gy = h - 22;
+    if (id === 'egg') {
+      const s = Math.min(fit(id, w / 3, h, 0.6), 1.3);
+      ['fire', 'water', 'leaf'].forEach((e, i) => drawCreature(ctx, 'egg', w / 2 + (i - 1) * w * 0.3, gy - (i === 1 ? 0 : 10), { scale: s, t, element: e, seed: i }));
+    } else {
+      drawCreature(ctx, id, w / 2 - (m.role === 'boss' ? w * 0.03 : 0), gy, { scale: fit(id, w, h - 26), t, facing: 1, mood: 'neutral' });
+    }
+  });
+}
+
+// ---- (b) evolution trees
+const LINES = [
+  { el: 'fire', baby: 'flarekit', forms: [['blazefang', 'Might'], ['solwisp', 'Heart']] },
+  { el: 'water', baby: 'puddlin', forms: [['tidalknight', 'Might'], ['mistmuse', 'Wit']] },
+  { el: 'leaf', baby: 'sproutle', forms: [['thornback', 'Might'], ['bloomseer', 'Wit']] },
+];
+const trees = document.getElementById('trees');
+function pill(ctx, text, x, y, bg, fg = '#2a1b33', size = 12) {
+  ctx.font = `700 ${size}px ui-rounded, "Segoe UI", system-ui, sans-serif`;
+  const tw = ctx.measureText(text).width + 14;
+  ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect(x - tw / 2, y - size * 0.85, tw, size * 1.7, size); ctx.fill();
+  ctx.fillStyle = fg; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, x, y + 0.5);
+}
+function arrow(ctx, x0, y0, x1, y1, col, bend = 0) {
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2 + bend;
+  ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.setLineDash([2, 7]);
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(mx, my, x1, y1); ctx.stroke(); ctx.setLineDash([]);
+  const a = Math.atan2(y1 - my, x1 - mx);
+  ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x1 + Math.cos(a) * 6, y1 + Math.sin(a) * 6); ctx.lineTo(x1 + Math.cos(a + 2.5) * 9, y1 + Math.sin(a + 2.5) * 9); ctx.lineTo(x1 + Math.cos(a - 2.5) * 9, y1 + Math.sin(a - 2.5) * 9); ctx.closePath(); ctx.fill();
+}
+for (const L of LINES) {
+  const box = el('div', 'tree'); const cv = el('canvas'); cv.setAttribute('role', 'img');
+  cv.setAttribute('aria-label', `${SPRITE_META[L.baby].name} evolution line`);
+  box.append(cv); trees.append(box);
+  view(cv, (ctx, w, h, t) => {
+    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#2b2441'); g.addColorStop(1, TINT[L.el]);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    const s = Math.min((h * 0.36) / 200, w / 500);
+    const xe = w * 0.12, xb = w * 0.39, xf = w * 0.78, yb = h * 0.66, yf = [h * 0.43, h * 0.91];
+    const col = EL[L.el];
+    arrow(ctx, xe + 30 * s, yb - 40 * s, xb - 62 * s, yb - 40 * s, col, -16);
+    L.forms.forEach(([id, stat], i) => {
+      const ty = yf[i] - SPRITE_META[id].h * s * 0.5;
+      arrow(ctx, xb + 58 * s, yb - 60 * s + i * 30 * s, xf - 86 * s, ty, col, i ? 20 : -20);
+      pill(ctx, stat, (xb + 58 * s + xf - 86 * s) / 2, (yb - 60 * s + i * 30 * s + ty) / 2 + (i ? 16 : -16), col);
+    });
+    drawCreature(ctx, 'egg', xe, yb, { scale: s * 1.05, t, element: L.el });
+    drawCreature(ctx, L.baby, xb, yb, { scale: s * 1.15, t, mood: 'happy' });
+    L.forms.forEach(([id], i) => drawCreature(ctx, id, xf, yf[i], { scale: s, t }));
+    pill(ctx, 'Egg', xe, yb + 18, '#00000055', '#f4eee4');
+    pill(ctx, SPRITE_META[L.baby].name, xb, yb + 18, '#00000055', '#f4eee4');
+    L.forms.forEach(([id], i) => pill(ctx, SPRITE_META[id].name, xf, yf[i] + 17, '#00000055', '#f4eee4'));
+  });
+}
+
+// ---- (c) moods + animations
+const pick = document.getElementById('moodPick');
+for (const id of SPRITE_IDS.filter((i) => i !== 'egg')) pick.append(new Option(SPRITE_META[id].name, id));
+pick.value = qs.get('creature') || 'flarekit';
+function row(parent, items, optsFor) {
+  for (const name of items) {
+    const fig = el('figure', 'cell'); const cv = el('canvas'); cv.setAttribute('role', 'img'); cv.setAttribute('aria-label', name);
+    fig.append(cv, el('figcaption', '', `<b>${name}</b>`)); parent.append(fig);
+    view(cv, (ctx, w, h, t) => {
+      const id = pick.value, m = SPRITE_META[id];
+      fig.style.setProperty('--tint', TINT[m.element]);
+      drawCreature(ctx, id, w / 2, h - 24, { scale: fit(id, w, h - 30, 0.8), t, ...optsFor(name) });
+    });
+  }
+}
+row(document.getElementById('moodRow'), ['happy', 'neutral', 'stressed', 'hurt'], (mood) => ({ mood }));
+row(document.getElementById('animRow'), ['idle', 'attack', 'hit', 'faint'], (anim) => ({ anim }));
+
+// ---- (d) garden
+function placeAll(ctx, w, h, t, viewName, actors) {
+  const placed = actors.map((a) => ({ ...a, p: groundToScreen(a.u, a.v, w, h, viewName) }));
+  placed.sort((a, b) => a.p.y - b.p.y);
+  for (const a of placed) drawCreature(ctx, a.id, a.p.x, a.p.y, { ...a.o, scale: a.p.scale * (a.k || 1), t });
+}
+view(document.getElementById('gardenCv'), (ctx, w, h, t) => {
+  drawGarden(ctx, w, h, t);
+  placeAll(ctx, w, h, t, 'garden', [
+    { id: 'sproutle', u: 0.3, v: 0.78, o: { mood: 'neutral', facing: 1 } },
+    { id: 'puddlin', u: 0.5, v: 0.4, o: { mood: 'happy', facing: 1 } },
+    { id: 'flarekit', u: 0.27, v: 0.06, o: { mood: 'happy', facing: 1 } },
+    { id: 'egg', u: 0.73, v: 0.98, o: { element: 'leaf', seed: 1 } },
+    { id: 'egg', u: 0.66, v: 1.0, o: { element: 'fire', seed: 2 } },
+  ]);
+});
+
+// ---- (e) dungeon
+let floor = parseInt(qs.get('floor') || '1', 10);
+const fb = document.getElementById('floorBtns');
+for (const f of [1, 2, 3]) {
+  const b = el('button', '', `Floor ${f} · ${DUNGEON_FLOORS[f].name}`);
+  b.type = 'button'; b.setAttribute('aria-pressed', String(f === floor));
+  b.onclick = () => { floor = f; [...fb.children].forEach((x, i) => x.setAttribute('aria-pressed', String(i + 1 === f))); };
+  fb.append(b);
+}
+view(document.getElementById('dungeonCv'), (ctx, w, h, t) => {
+  drawDungeon(ctx, w, h, t, floor);
+  placeAll(ctx, w, h, t, 'dungeon', [
+    { id: 'bloomseer', u: 0.36, v: 0.74, o: { facing: 1, mood: 'neutral' } },
+    { id: 'tidalknight', u: 0.19, v: 0.4, o: { facing: 1, mood: 'neutral' } },
+    { id: 'blazefang', u: 0.33, v: 0.08, o: { facing: 1, mood: 'neutral' } },
+    { id: 'hollow_warden', u: 0.8, v: 0.5, o: { facing: -1, mood: 'neutral' } },
+    { id: 'gloomlet', u: 0.6, v: 0.62, o: { facing: -1, mood: 'neutral', seed: 1 } },
+    { id: 'gloomlet', u: 0.62, v: 0.05, o: { facing: -1, mood: 'happy', seed: 2 } },
+  ]);
+});
+
+requestAnimationFrame(frame);
+window.__ready = true;
+</script>
+</body>
+</html>
