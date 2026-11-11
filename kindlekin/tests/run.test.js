@@ -5,6 +5,7 @@ import { createRng } from '../src/rng.js';
 import {
   createRun, makeFighter, makeFloorMap, choices, enterNode, startBattle, finishBattle, resolveRest, resolveEvent,
   offerBoons, pickBoon, completeNode, applyRunToSave, autoRun, encounterFor, motesFor, living,
+  snapshotRun, restoreRun,
 } from '../src/run.js';
 import { boonEffects } from '../src/battle.js';
 
@@ -201,4 +202,48 @@ test('balance: 200 runs, trained adults vs babies (prints win rates)', () => {
   assert.ok(A.f1 >= 0.9, 'adults nearly always clear floor 1');
   assert.ok(A.boss > 0.2 && A.boss < 0.8, 'boss is a coin flip-ish for a good party');
   assert.ok(B.f2 < 0.2, 'babies struggle on floor 2');
+});
+
+test('Gloom Fog reports the stress actually applied (Calm Bell, Cuddly), not the base +12', () => {
+  const run = createRun({ party: party([{ uid: 'a', stress: 10 }, { uid: 'b', stress: 95 }]), seed: 4 });
+  run.party[0].stressGainMult = 0.9; // Cuddly
+  run.boons.push('calm_bell');
+  run.current = { type: 'event', eventId: 'gloom_fog' };
+  const r = resolveEvent(run);
+  const got = (key) => r.events.filter((e) => e.type === 'stress' && e.dst === key).reduce((n, e) => n + e.amount, 0);
+  assert.equal(got('a'), Math.round(12 * 0.75 * 0.9)); // 8, what the event card now shows
+  assert.equal(run.party[0].stress, 10 + got('a'));
+  assert.equal(got('b'), 5); // clamped at 100 before the break
+});
+
+test('mid-run save: snapshot/restore round-trips through JSON and the run continues identically', () => {
+  const play = (run, steps) => {
+    const out = [];
+    for (let i = 0; i < steps && !run.done; i++) {
+      const { node } = enterNode(run, 0);
+      if (['fight', 'elite', 'boss'].includes(node.type)) {
+        const b = startBattle(run);
+        let n = 0;
+        while (!b.state.ended && n++ < 5000) b.step();
+        finishBattle(run, b);
+      } else if (node.type === 'rest') resolveRest(run);
+      else resolveEvent(run);
+      if (run.pendingBoons) pickBoon(run, run.pendingBoons[0]);
+      completeNode(run);
+      out.push([node.type, run.party.map((m) => [m.hp, m.stress]), run.boons.join(), run.motes]);
+    }
+    return out;
+  };
+  const a = createRun({ party: adults(), seed: 77 });
+  play(a, 3);
+  const saved = JSON.parse(JSON.stringify(snapshotRun(a)));
+  const b = restoreRun(saved);
+  assert.equal(Object.keys(b).includes('rng'), false); // rng stays out of the JSON
+  assert.deepEqual(play(b, 6), play(a, 6));
+  // a snapshot taken just after entering a node points run.current back into the map
+  const c = createRun({ party: adults(), seed: 78 });
+  enterNode(c, 0);
+  const d = restoreRun(JSON.parse(JSON.stringify(snapshotRun(c))));
+  assert.equal(d.current, d.map[d.floor][d.step][d.current.lane]);
+  assert.deepEqual(choices(d), []);
 });

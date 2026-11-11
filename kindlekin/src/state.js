@@ -6,6 +6,8 @@ import { createRng } from './rng.js';
 
 export const SAVE_KEY = 'kindlekin.save.v1';
 export const SAVE_VERSION = 1;
+export const RUN_SAVE_VERSION = 1;
+export const NAME_MAX = 14;
 const STATS = ['might', 'wit', 'heart'];
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -85,6 +87,7 @@ export function newGame(seed) {
     expeditions: 0,
     nextUid: 1,
     pendingExpedition: null, // { day, party } while an expedition is out
+    activeRun: null, // { v: RUN_SAVE_VERSION, run, rng } mid-expedition snapshot (expedition.js)
   };
   for (const id of ['flarekit_egg', 'puddlin_egg', 'sproutle_egg']) state.creatures.push(makeCreature(state, id));
   return state;
@@ -115,6 +118,8 @@ export function migrate(raw) {
   }
   const maxN = st.creatures.reduce((n, c) => Math.max(n, parseInt(String(c.uid).replace(/^k/, ''), 10) || 0), 0);
   st.nextUid = Math.max(st.nextUid || 1, maxN + 1);
+  const ar = raw.activeRun;
+  st.activeRun = ar && typeof ar === 'object' && ar.v === RUN_SAVE_VERSION && ar.run && Array.isArray(ar.run.party) ? ar : null;
   st.version = SAVE_VERSION;
   return st;
 }
@@ -199,6 +204,15 @@ export function addStress(creature, amount, mult = 1) {
   const d = amount > 0 ? Math.round(amount * mult) : amount;
   creature.stress = clamp(creature.stress + d, TUNING.STRESS_MIN, TUNING.STRESS_MAX);
   return creature.stress;
+}
+
+/** Rename a creature (trimmed, max NAME_MAX chars). Empty names are refused. -> { ok, name } */
+export function renameCreature(state, uid, name) {
+  const c = getCreature(state, uid);
+  const clean = String(name ?? '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX).trim();
+  if (!c || !clean) return { ok: false, name: c ? c.name : '' };
+  c.name = clean;
+  return { ok: true, name: clean };
 }
 
 // ---------------------------------------------------------------- death & legacy

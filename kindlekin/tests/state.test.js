@@ -4,7 +4,7 @@ import { TUNING, CREATURES } from '../src/data.js';
 import {
   newGame, getCreature, doAction, canDoAction, buyExtraAction, endDay, personalityOf, moodOf, spriteIdOf,
   effectiveStats, addStress, recordDeath, saveGame, loadGame, migrate, SAVE_KEY, checkEvolution, makeCreature,
-  beginExpedition, finishExpedition, eggOf,
+  beginExpedition, finishExpedition, eggOf, renameCreature, NAME_MAX, RUN_SAVE_VERSION,
 } from '../src/state.js';
 
 const byId = (st, species) => st.creatures.find((c) => c.species === species);
@@ -325,4 +325,32 @@ test('save round-trip through localStorage (and safe when unavailable)', () => {
 
 test('data sanity: every baby has two branches', () => {
   for (const c of CREATURES.filter((x) => x.stage === 'baby')) assert.equal(c.evolvesTo.length, 2);
+});
+
+test('renameCreature: trims, collapses spaces, caps at 14 chars, refuses empty; survives evolution', () => {
+  const st = newGame(5);
+  const c = st.creatures[0];
+  assert.equal(NAME_MAX, 14);
+  assert.deepEqual(renameCreature(st, c.uid, '  Ember   paw  '), { ok: true, name: 'Ember paw' });
+  assert.equal(renameCreature(st, c.uid, 'Emberpaw the Brave and Bold').name, 'Emberpaw the B');
+  assert.equal(c.name, 'Emberpaw the B');
+  assert.equal(renameCreature(st, c.uid, '   ').ok, false);
+  assert.equal(c.name, 'Emberpaw the B');
+  assert.equal(renameCreature(st, 'nope', 'X').ok, false);
+  // a custom name is kept when the egg hatches
+  for (let i = 0; i < TUNING.HATCH_PETS; i++) doAction(st, c.uid, 'pet');
+  assert.equal(c.species, 'flarekit');
+  assert.equal(c.name, 'Emberpaw the B');
+});
+
+test('mid-run save: activeRun is optional, versioned and survives migrate()', () => {
+  const st = newGame(3);
+  assert.equal(st.activeRun, null);
+  const legacy = JSON.parse(JSON.stringify(st));
+  delete legacy.activeRun; // saves from before mid-run saving existed
+  assert.equal(migrate(legacy).activeRun, null);
+  const snap = { v: RUN_SAVE_VERSION, run: { floor: 2, party: [{ uid: 'k1' }] }, rng: 99 };
+  assert.deepEqual(migrate({ ...legacy, activeRun: snap }).activeRun, snap);
+  assert.equal(migrate({ ...legacy, activeRun: { ...snap, v: RUN_SAVE_VERSION + 1 } }).activeRun, null);
+  assert.equal(migrate({ ...legacy, activeRun: { v: RUN_SAVE_VERSION, run: {} } }).activeRun, null);
 });

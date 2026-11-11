@@ -1,14 +1,14 @@
 // Kindlekin — expedition screen (Dungeon agent): node map, auto-battles, rests, events,
 // boon picks, floor clears and the results hand-off back to the garden (docs/CONTRACT.md).
 
-import { getCreature, effectiveStats, recordDeath, spriteIdOf } from '../state.js';
+import { getCreature, effectiveStats, recordDeath, spriteIdOf, RUN_SAVE_VERSION } from '../state.js';
 import { createRng } from '../rng.js';
 import { TUNING as T, BOONS, AFFLICTIONS, VIRTUES } from '../data.js';
 import { DUNGEON_FLOORS } from '../scenes.js';
 import { drawCreature, spriteMeta } from '../sprites.js';
 import {
   createRun, makeFighter, choices, enterNode, startBattle, finishBattle, resolveRest, resolveEvent,
-  pickBoon, completeNode, applyRunToSave, living, NODE_INFO,
+  pickBoon, completeNode, applyRunToSave, living, NODE_INFO, snapshotRun, restoreRun,
 } from '../run.js';
 import { createBattleView, drawPartyIdle } from './exp-battle-view.js';
 import { NODE_ICONS, BOON_ICONS, ICON } from './exp-icons.js';
@@ -39,6 +39,7 @@ const X = {
     this.timers = [];
     this.applied = null;
     const st = app.state;
+    if (params.resume || (st.activeRun && !params.party)) return this.resume(app);
     let uids = (params.party || []).filter((u) => getCreature(st, u));
     if (!uids.length) uids = st.creatures.filter((c) => c.hatchedDay != null && spriteIdOf(c) !== 'egg' && c.hp > 0).slice(0, T.PARTY_SIZE).map((c) => c.uid);
     if (!uids.length) { app.toast('Nobody is ready for the Gloom yet.'); app.go('garden'); return; }
@@ -59,6 +60,33 @@ const X = {
     app.ui.append(this.root);
     this.renderShell();
     this.showMap();
+  },
+
+  /** Continue a run from the mid-run save (state.activeRun): back at the map, or replaying the entered node. */
+  resume(app) {
+    const snap = app.state.activeRun;
+    let run = null;
+    try { run = snap && restoreRun(snap); } catch (err) { console.warn('[kindlekin] could not restore the expedition', err); }
+    if (!run) { app.state.activeRun = null; app.save(); app.go('garden'); return; }
+    this.run = run;
+    this.speed = loadSpeed();
+    this.view = 'map';
+    this.bv = null;
+    this.root = h('div', 'xp');
+    app.ui.append(this.root);
+    this.renderShell();
+    if (run.done) this.showResults();
+    else if (!run.current) this.showMap();
+    else if (run.current.type === 'rest') this.showRest();
+    else if (run.current.type === 'event') this.showEvent();
+    else this.showBattle();
+  },
+
+  /** Mid-run save: the run as it stands now (on the map, or just after entering a node). */
+  persist() {
+    if (this.applied || this.run.done) return;
+    this.app.state.activeRun = { v: RUN_SAVE_VERSION, ...snapshotRun(this.run) };
+    this.app.save();
   },
 
   exit() {
@@ -174,6 +202,7 @@ const X = {
 
   // ------------------------------------------------------------ map
   showMap() {
+    this.persist();
     this.view = 'map';
     this.root.classList.remove('is-battle');
     this.updateSpeed(); this.updateTop(); this.renderParty();
@@ -249,6 +278,7 @@ const X = {
     if (this.busy) return;
     const run = this.run;
     const { node, events } = enterNode(run, lane);
+    this.persist();
     this.renderParty();
     const delay = this.playEvents(events);
     if (run.done) { this.later(delay + 300, () => this.showResults()); return; }
@@ -400,8 +430,14 @@ const X = {
     }[ev.id] || ev.desc;
     card.innerHTML = `<div class="xp-hero" style="--hc:${hero[0]}">${hero[1]}</div><div class="xp-kicker">Event</div><h2>${esc(ev.name)}</h2><p>${esc(flavour)}</p>`;
     const list = h('div', 'xp-list');
-    if (res.target) list.append(h('div', 'xp-li', `<span class="grow">${esc(res.target.name)}</span><span class="gold">+${ev.effect.bond} Bond</span><span class="st">${ev.effect.stress} stress</span>`));
-    if (ev.id === 'gloom_fog') list.append(h('div', 'xp-li', `<span class="grow">Whole party</span><span class="st">+${ev.effect.stress} stress</span><span class="gold">+${res.motes} Motes</span>`));
+    // show the stress actually applied (Calm Bell, Cuddly and the 0–100 clamp change it)
+    const dStress = (m) => res.events.filter((e) => e.type === 'stress' && e.dst === m.key).reduce((n, e) => n + e.amount, 0);
+    const fmt = (n) => `${n > 0 ? '+' : ''}${n} stress`;
+    if (res.target) list.append(h('div', 'xp-li', `<span class="grow">${esc(res.target.name)}</span><span class="gold">+${ev.effect.bond} Bond</span><span class="st">${fmt(dStress(res.target))}</span>`));
+    if (ev.id === 'gloom_fog') {
+      for (const m of run.party.filter((p) => !p.dead || dStress(p))) list.append(h('div', 'xp-li', `<i class="xp-el" style="--c:${EL_COL[m.element]}"></i><span class="grow">${esc(m.name)}</span><span class="st">${fmt(dStress(m))}</span>`));
+      list.append(h('div', 'xp-li', `<span class="grow">Motes found</span><span class="gold">+${res.motes} Motes</span>`));
+    }
     if (list.children.length) card.append(list);
     const delay = this.playEvents(res.events);
     const go = () => (run.done ? this.showResults() : res.boonOffer ? this.showBoons('Whispering Well') : this.afterNode());
@@ -454,6 +490,7 @@ const X = {
     const run = this.run, app = this.app;
     if (!this.applied) {
       this.applied = applyRunToSave(app.state, run, { getCreature, recordDeath });
+      app.state.activeRun = null;
       app.save();
     }
     const sum = this.applied;

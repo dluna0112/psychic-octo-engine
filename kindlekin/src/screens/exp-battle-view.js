@@ -18,13 +18,31 @@ function mood(d) {
   return 'happy';
 }
 
+// Formations (ground u, v): slot 0 is the front fighter, nearest the middle; the others step back
+// and outwards so every body, name tag and HP bar stays readable, and nobody stands in the
+// bottom-centre strip where the Cheer button sits. Portrait phones get a deeper, narrower column.
+const FORMATION = {
+  wide: {
+    party: [{ u: 0.19, v: 0.79 }, { u: -0.09, v: 0.24 }, { u: 0.09, v: 0.24 }],
+    enemies: [{ u: 0.81, v: 0.79 }, { u: 1.09, v: 0.24 }, { u: 0.91, v: 0.24 }],
+    single: { u: 0.78, v: 0.5 },
+  },
+  tall: {
+    party: [{ u: 0.31, v: 0.72 }, { u: 0.13, v: 0.18 }, { u: -0.4, v: 1.72 }],
+    enemies: [{ u: 0.69, v: 0.72 }, { u: 0.87, v: 0.18 }, { u: 1.4, v: 1.72 }],
+    single: { u: 0.68, v: 0.4 },
+  },
+};
+
 /** Where everyone stands. Exported so the map view can reuse the party layout. */
-export function spotFor(side, slot, count, isBoss) {
-  if (side === 'party') return DUNGEON_SPOTS.party[slot] || DUNGEON_SPOTS.party[0];
+export function spotFor(side, slot, count, isBoss, portrait = false) {
+  const F = FORMATION[portrait ? 'tall' : 'wide'];
+  if (side === 'party') return F.party[slot] || F.party[0];
   if (isBoss) return DUNGEON_SPOTS.boss;
-  if (count === 1) return { u: 0.72, v: 0.32 };
-  return DUNGEON_SPOTS.enemies[slot] || DUNGEON_SPOTS.enemies[0];
+  if (count === 1) return F.single;
+  return F.enemies[slot] || F.enemies[0];
 }
+const isPortrait = (W, H) => W / H < 0.85;
 
 export function createBattleView({ battle, floor, cb = {} }) {
   const S = battle.state;
@@ -32,7 +50,7 @@ export function createBattleView({ battle, floor, cb = {} }) {
   const mk = (f, side, slot, count) => ({
     f, key: f.key, side, slot,
     sprite: f.sprite, scale: f.spriteScale || 1, variant: f.variant, boss: f.tier === 'boss',
-    spot: spotFor(side, slot, count, f.tier === 'boss'),
+    count,
     d: { hp: f.hp, maxHp: f.maxHp, stress: f.stress || 0, dead: !!f.dead, affliction: f.affliction || null, virtue: f.virtue || null },
     anim: null, faintAt: null, dash: null, aura: 0,
   });
@@ -43,19 +61,21 @@ export function createBattleView({ battle, floor, cb = {} }) {
   let clock = 0, busyUntil = 0.5, speed = 1, ended = false, paused = false;
   const timeline = []; // { at, fn }
   const floats = [];
-  let shake = 0, pulse = 0, cheerGlow = 0, lastW = 1, lastH = 1;
+  let shake = 0, pulse = 0, cheerGlow = 0, lastW = 1, lastH = 1, portrait = false;
   const at = (time, fn) => timeline.push({ at: time, fn });
 
   // screen positions are needed to place floating numbers; computed lazily from last canvas size
   const pos = (a) => {
-    const p = groundToScreen(a.spot.u, a.spot.v, lastW, lastH, 'dungeon');
+    const spot = spotFor(a.side, a.slot, a.count, a.boss, portrait);
+    const p = groundToScreen(spot.u, spot.v, lastW, lastH, 'dungeon');
     const m = spriteMeta(a.sprite) || { h: 100, w: 100 };
     return { ...p, top: p.y - m.h * p.scale * a.scale, sw: m.w * p.scale * a.scale };
   };
   const float = (a, text, o = {}) => {
     const p = pos(a);
-    floats.push({ x: p.x + (o.dx || 0), y: p.top - 30 + (o.dy || 0), text, color: o.color || '#fff', size: o.size || 26,
-      born: clock, life: o.life || 1.1, sub: o.sub || null, subColor: o.subColor || '#fff' });
+    // o.body: show on the fighter's body instead of above its head (keeps name tags readable)
+    floats.push({ x: p.x + (o.dx || 0), y: (o.body ? p.top + (p.y - p.top) * 0.35 : p.top - 30) + (o.dy || 0), text, color: o.color || '#fff', size: o.size || 26,
+      born: clock, life: o.life || 1.1, sub: o.sub || null, subColor: o.subColor || '#fff', rise: o.body ? 16 : 42 });
   };
 
   function schedule(events) {
@@ -113,7 +133,7 @@ export function createBattleView({ battle, floor, cb = {} }) {
           const t = Math.max(lastT, ev.reason === 'win' || ev.reason === 'stalemate' ? cursor : lastT);
           at(t + 0.02, () => {
             a.d.stress = ev.total;
-            if (Math.abs(ev.amount) >= 5 && ev.reason !== 'cheer' && ev.reason !== 'win') float(a, `${ev.amount > 0 ? '+' : ''}${ev.amount} stress`, { color: ev.amount > 0 ? '#c9a2ff' : '#9fe8c6', size: 15, dy: 30, dx: 0, life: 1.2 });
+            if (Math.abs(ev.amount) >= 5 && ev.reason !== 'cheer' && ev.reason !== 'win') float(a, `${ev.amount > 0 ? '+' : ''}${ev.amount} stress`, { color: ev.amount > 0 ? '#c9a2ff' : '#9fe8c6', size: 15, body: true, life: 1.2 });
           });
           break;
         }
@@ -253,7 +273,7 @@ export function createBattleView({ battle, floor, cb = {} }) {
   }
 
   function drawBossBar(c, a, w) {
-    const bw = Math.min(w - 32, 460), bx = (w - bw) / 2, y = 78;
+    const bw = Math.min(w - 32, 460), bx = (w - bw) / 2, y = w < 520 ? 94 : 78; // clear of the top bar on phones
     const k = clamp(a.d.hp / a.d.maxHp, 0, 1);
     c.save();
     c.font = `900 14px ${FONT}`; c.textAlign = 'center';
@@ -267,7 +287,7 @@ export function createBattleView({ battle, floor, cb = {} }) {
 
   function draw(c, W, H, t) {
     const V = viewport(W, H), w = V.w, h = V.h;
-    lastW = w; lastH = h;
+    lastW = w; lastH = h; portrait = isPortrait(W, H);
     c.fillStyle = '#07060c'; c.fillRect(0, 0, W, H);
     c.save();
     applyViewport(c, V);
@@ -312,7 +332,6 @@ export function createBattleView({ battle, floor, cb = {} }) {
       }
       c.restore();
     }
-    for (const { a, p } of list) if (!a.d.dead) drawBars(c, a, p.x, p.top, p.sw);
     // wail pulse
     if (pulse > 0) {
       const g = c.createRadialGradient(w * 0.7, h * 0.55, 10, w * 0.7, h * 0.55, Math.max(w, h) * (0.3 + (1 - pulse) * 0.9));
@@ -320,11 +339,21 @@ export function createBattleView({ battle, floor, cb = {} }) {
       c.fillStyle = g; c.fillRect(-20, -20, w + 40, h + 40);
     }
     c.restore();
-    // floating numbers (unshaken)
+    c.restore();
+    // name tags + bars in screen pixels (not zoomed on phones), so they stay small and apart
+    const Z = (x, y) => (V.z === 1 ? [x, y] : [V.fx + (x - V.fx) * V.z, V.fy + (y - V.fy) * V.z]);
+    for (const { a, p } of list) {
+      if (a.d.dead) continue;
+      const [x, top] = Z(p.x, p.top);
+      drawBars(c, a, x, top, p.sw * V.z);
+    }
+    // floating numbers (unshaken, above the name tags)
+    c.save();
+    applyViewport(c, V);
     for (const f of floats) {
       const k = (clock - f.born) / f.life;
       const pop = k < 0.12 ? 0.6 + (k / 0.12) * 0.55 : k < 0.22 ? 1.15 - ((k - 0.12) / 0.1) * 0.15 : 1;
-      const y = f.y - ease(clamp(k, 0, 1)) * 42;
+      const y = f.y - ease(clamp(k, 0, 1)) * f.rise;
       c.save(); c.globalAlpha = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
       c.translate(f.x, y); c.scale(pop, pop);
       c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
@@ -379,7 +408,8 @@ export function drawPartyIdle(c, W, H, t, floor, party, opts = {}) {
   c.save();
   applyViewport(c, V);
   drawDungeon(c, w, h, t, floor);
-  const list = party.map((m, i) => ({ m, p: groundToScreen(DUNGEON_SPOTS.party[i].u, DUNGEON_SPOTS.party[i].v, w, h, 'dungeon'), i }))
+  const spots = party.map((m, i) => spotFor('party', i, party.length, false, isPortrait(W, H)));
+  const list = party.map((m, i) => ({ m, p: groundToScreen(spots[i].u, spots[i].v, w, h, 'dungeon'), i }))
     .filter((x) => !x.m.dead).sort((a, b) => a.p.y - b.p.y);
   for (const { m, p, i } of list) drawCreature(c, m.sprite, p.x, p.y, { scale: p.scale, t, facing: 1, mood: mood(m), seed: i });
   c.restore();

@@ -89,6 +89,9 @@ state = {
   memorials: [{ name, species, day, cause, highestStat }],
   bestFloor: 0,
   expeditions: 0,
+  pendingExpedition: null, // { day, party } while an expedition is out (garden ends the day on return)
+  activeRun: null,       // optional mid-run save: { v: RUN_SAVE_VERSION, run, rng } from run.js snapshotRun();
+                         // written on the map and on node entry, cleared when results are applied
 }
 
 Creature = {
@@ -132,3 +135,4 @@ recordDeath(state, uid, cause) -> { memorial, legacyEgg }  // removes creature, 
 - (Dungeon) Summary `outcome` can also be `'fled'`: the Hollow Warden withdraws after MAX_ROUNDS (DESIGN: "enemies flee"), the run ends and survivors come home. Garden: please treat any outcome other than 'cleared'/'wiped' as "the party returned".
 - (Dungeon) `node --test tests/` fails on Node 22 (a directory is treated as a module path). Use `node --test` (auto-discovers `tests/*.test.js`) or `node --test 'tests/*.test.js'` from kindlekin/.
 - (Dungeon, optional tuning) Balance at current data (200 seeded runs): day~10 adults clear F1 100%, F2 92%, beat the Warden 45%; day~4 babies clear F1 38%, F2 0%. If babies should usually clear floor 1, set Dire Gloomlet to might 12 / hp 80 (babies F1 → 43%, adults Warden → 51%).
+- (QA) Mid-run save added: `state.activeRun` (see Save data). Title Continue and garden entry resume it via `app.go('expedition', { resume: true })`. `renameCreature(state, uid, name)` added to state.js (max `NAME_MAX` = 14).

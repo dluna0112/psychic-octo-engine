@@ -29,9 +29,10 @@ export default {
     if (saved) {
       const s = app.state;
       const cont = el('button', 'btn btn-primary btn-lg', 'Continue');
-      cont.onclick = () => app.go('garden');
+      cont.onclick = () => (s.activeRun ? app.go('expedition', { resume: true }) : app.go('garden'));
       menu.append(cont);
-      const meta = el('p', 'title-meta', `Day ${s.day} · ${s.creatures.length} kin · ${s.memorials.length} remembered`);
+      const where = s.activeRun ? `Expedition in progress · floor ${s.activeRun.run?.floor || 1}` : `${s.creatures.length} kin`;
+      const meta = el('p', 'title-meta', `Day ${s.day} · ${where} · ${s.memorials.length} remembered`);
       const ng = el('button', 'btn btn-ghost', 'New Game');
       ng.onclick = () => confirmNew(app);
       menu.append(ng, meta);

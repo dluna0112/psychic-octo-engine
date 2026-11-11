@@ -81,6 +81,22 @@ export function createRun({ party, seed = 1, rng = null }) {
   return run;
 }
 
+/** Plain JSON copy of a run plus its rng position, for a mid-run save. */
+export function snapshotRun(run) {
+  return { run: JSON.parse(JSON.stringify(run)), rng: run.rng.getState() };
+}
+
+/** Rebuild a run from snapshotRun() output (the rng continues where it was saved). */
+export function restoreRun(snap) {
+  const r = createRng(1);
+  r.setState(snap.rng);
+  const run = JSON.parse(JSON.stringify(snap.run));
+  // run.current must be the node object inside run.map (screens compare nodes by identity)
+  if (run.current) run.current = run.map[run.current.floor][run.current.step - 1][run.current.lane] || run.current;
+  Object.defineProperty(run, 'rng', { value: r, enumerable: false });
+  return run;
+}
+
 export const living = (run) => run.party.filter((m) => !m.dead);
 export const boonFx = (run) => boonEffects(run.boons.map((id) => BOON[id]));
 const env = (run) => ({ rng: run.rng, fx: boonFx(run) });

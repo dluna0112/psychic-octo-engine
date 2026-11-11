@@ -5,7 +5,7 @@ import { TUNING, GARDEN_ACTIONS, CREATURES, AFFLICTIONS } from '../data.js';
 import {
   getCreature, personalityOf, moodOf, spriteIdOf, doAction, canDoAction, buyExtraAction, canBuyExtraAction,
   endDay, evolutionHint, isEgg, stageOf, elementOf, partyCandidates, beginExpedition, finishExpedition,
-  speciesOf,
+  speciesOf, effectiveStats, renameCreature, NAME_MAX,
 } from '../state.js';
 
 // ------------------------------------------------------------------ helpers
@@ -244,11 +244,12 @@ function buildCare() {
   care.innerHTML = `
     <div class="care-head">
       <canvas class="portrait" width="64" height="64"></canvas>
-      <div class="care-title"><h2 data-r="name"></h2><div class="care-tags" data-r="tags"></div></div>
+      <div class="care-title"><h2><button type="button" class="care-name" data-r="name" title="Rename"></button></h2><div class="care-tags" data-r="tags"></div></div>
       <button class="btn btn-icon btn-ghost" data-r="close" aria-label="Close">${ICON.close}</button>
     </div>
     <div class="care-body" data-r="body"></div>`;
   care.querySelector('[data-r=close]').onclick = () => select(null);
+  care.querySelector('[data-r=name]').onclick = () => startRename();
   G.dom.care = { el: care, name: care.querySelector('[data-r=name]'), tags: care.querySelector('[data-r=tags]'), body: care.querySelector('[data-r=body]'), portrait: care.querySelector('.portrait') };
   G.portraitCtx = G.dom.care.portrait.getContext('2d');
   G.app.ui.append(care);
@@ -272,7 +273,8 @@ function renderCare() {
   const egg = isEgg(c);
   const el = elementOf(c);
   const pers = personalityOf(c);
-  d.name.textContent = c.name;
+  if (!d.name.parentElement.querySelector('input')) d.name.textContent = c.name;
+  d.name.setAttribute('aria-label', `${c.name} — tap to rename`);
   d.portrait.style.setProperty('--tint', EL_TINT[el]);
   const stage = { egg: 'Egg', baby: 'Baby', adult: 'Adult' }[stageOf(c)];
   d.tags.innerHTML = `
@@ -298,11 +300,13 @@ function renderCare() {
 
   let stats = '';
   if (!egg) {
+    const maxHp = effectiveStats(st, c).maxHp; // includes Gluttonous +10%, same as on expeditions
+    const hp = c.hp >= c.maxHp ? maxHp : Math.round((c.hp / c.maxHp) * maxHp);
     stats = `<div class="bars">
       ${bar('Might', c.might, TUNING.STAT_CAP, 'var(--might)')}
       ${bar('Wit', c.wit, TUNING.STAT_CAP, 'var(--wit)')}
       ${bar('Heart', c.heart, TUNING.STAT_CAP, 'var(--heart)')}
-      ${bar('HP', c.hp, c.maxHp, 'var(--hp)', `/${c.maxHp}`)}
+      ${bar('HP', hp, maxHp, 'var(--hp)', `/${maxHp}`)}
       ${bar('Bond', c.bond, TUNING.BOND_MAX, 'var(--bond)', '', TUNING.BOND_TRAIN_BONUS_AT)}
       ${bar('Stress', c.stress, TUNING.STRESS_MAX, c.stress >= TUNING.MOOD_FRAZZLED_STRESS ? 'var(--bad)' : c.stress >= TUNING.MOOD_UNEASY_STRESS ? 'var(--warn)' : 'var(--stress)', '', TUNING.TRAIN_REFUSE_STRESS)}
     </div>
@@ -323,6 +327,36 @@ function renderCare() {
     <div class="acts-label"><span>Care &amp; training</span><span>${st.actionsLeft} action${st.actionsLeft === 1 ? '' : 's'} left</span></div>
     <div class="acts">${acts}</div>`;
   d.body.querySelectorAll('[data-act]').forEach((b) => { b.onclick = () => act(c.uid, b.dataset.act); });
+}
+
+function startRename() {
+  const c = G.sel && getCreature(G.app.state, G.sel);
+  const btn = G.dom.care.name;
+  if (!c || btn.parentElement.querySelector('input')) return;
+  const input = h('input', 'care-name-input');
+  Object.assign(input, { type: 'text', value: c.name, maxLength: NAME_MAX, spellcheck: false, autocomplete: 'off' });
+  input.setAttribute('aria-label', `Rename ${c.name}`);
+  btn.hidden = true;
+  btn.after(input);
+  input.focus(); input.select();
+  let done = false;
+  const finish = (keep) => {
+    if (done) return;
+    done = true;
+    input.remove(); btn.hidden = false;
+    if (keep && getCreature(G.app.state, c.uid)) {
+      const old = c.name;
+      const r = renameCreature(G.app.state, c.uid, input.value);
+      if (r.ok && r.name !== old) { G.app.save(); G.app.toast(`${old} is now ${r.name}`); }
+    }
+    refresh();
+  };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') finish(true);
+    else if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
 }
 
 function refresh() {
@@ -566,12 +600,13 @@ function drawFx(c, p, x, y, k) {
   c.restore();
 }
 
-function nameTag(c, text, x, y, k, selected, mood) {
+function nameTag(c, text, x, y, k, selected, mood, V = null) {
   const fs = clamp(12.5 * Math.sqrt(k / 0.8), 11, 15);
   c.save();
   c.font = `800 ${fs}px ui-rounded, "Nunito", "Segoe UI", system-ui, sans-serif`;
   const w = c.measureText(text).width + 18 + (mood ? 12 : 0);
   const hh = fs + 9;
+  if (V) x = clamp(x, V.x + 4 + w / 2, Math.max(V.x + 4 + w / 2, V.x + V.w - 4 - w / 2)); // keep tags on screen
   c.globalAlpha = selected ? 1 : 0.88;
   c.fillStyle = selected ? '#ffd45a' : 'rgba(30,20,46,0.78)';
   c.beginPath(); c.roundRect(x - w / 2, y - hh / 2, w, hh, hh / 2); c.fill();
@@ -608,6 +643,7 @@ export default {
     G.view.init = false;
     G.night = 0;
     if (!app.state) { app.go('title'); return; }
+    if (app.state.activeRun) { app.go('expedition', { resume: true }); return; } // a run is still out there
     let ended = null;
     if (app.state.pendingExpedition) { ended = finishExpedition(app.state); app.save(); }
     buildHud();
@@ -752,10 +788,11 @@ export default {
       }
       if (a.flash > 0) {
         const f = a.flash / 1.6;
-        const r = m.h * k * (1.1 + (1 - f) * 0.6);
+        // halo hugs the sprite (not 'lighter' over a wide radius) so neighbours aren't lit up too
+        const r = Math.max(m.w, m.h) * k * (0.5 + (1 - f) * 0.12);
         const g = ctx.createRadialGradient(p.x, p.y - m.h * k * 0.5, 0, p.x, p.y - m.h * k * 0.5, r);
-        g.addColorStop(0, `rgba(255,250,220,${0.9 * Math.sin(f * Math.PI)})`); g.addColorStop(1, 'rgba(255,220,120,0)');
-        ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g;
+        g.addColorStop(0, `rgba(255,250,220,${0.75 * Math.sin(f * Math.PI)})`); g.addColorStop(1, 'rgba(255,220,120,0)');
+        ctx.save(); ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(p.x, p.y - m.h * k * 0.5, r, 0, TAU); ctx.fill(); ctx.restore();
       }
       ctx.save();
@@ -769,18 +806,22 @@ export default {
       });
       ctx.restore();
     }
-    // name tags + effects above everything
+    // particles, then name tags above them, then floating stat text on top of everything
+    const fxPass = (text) => {
+      for (const fx of G.fx) {
+        if ((fx.kind === 'text') !== text) continue;
+        const it = items.find((i) => i.a.uid === fx.uid);
+        if (it) drawFx(ctx, fx, it.p.x, it.p.y, it.p.scale);
+      }
+    };
+    fxPass(false);
     for (const { c, a, p } of items) {
       const m = spriteMeta(a.showId) || { h: 100 };
       const k = p.scale * (isEgg(c) ? 0.85 : 1);
       const sel = G.sel === c.uid;
-      if (sel || !isEgg(c)) nameTag(ctx, c.name, p.x, p.y - m.h * k - 14, k, sel, isEgg(c) ? null : moodOf(c));
+      if (sel || !isEgg(c)) nameTag(ctx, c.name, p.x, p.y - m.h * k - 14, k, sel, isEgg(c) ? null : moodOf(c), V);
     }
-    for (const fx of G.fx) {
-      const it = items.find((i) => i.a.uid === fx.uid);
-      if (!it) continue;
-      drawFx(ctx, fx, it.p.x, it.p.y, it.p.scale);
-    }
+    fxPass(true);
 
     if (G.night > 0) {
       ctx.fillStyle = `rgba(20,14,48,${Math.sin(Math.min(1, G.night) * Math.PI) * 0.85})`;
