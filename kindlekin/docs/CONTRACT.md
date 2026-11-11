@@ -17,7 +17,7 @@ note under "Requests" at the bottom of this file and work around it.
 - All randomness goes through `src/rng.js` (`createRng(seed)`), never `Math.random`
   in logic modules.
 - Logic modules (`state.js`, `battle.js`, `run.js`) import nothing from the DOM
-  and are tested with `node --test kindlekin/tests/` (built-in `node:test`).
+  and are tested with `node --test 'tests/**/*.test.js'` (run from kindlekin/) (built-in `node:test`).
 - Do not modify `data.js`, `sprites.js`, `scenes.js`, `rng.js`. If art needs a
   tweak (new mood pose, etc.), add a Request.
 - Do not git commit or push. The manager does that.
@@ -127,3 +127,5 @@ recordDeath(state, uid, cause) -> { memorial, legacyEgg }  // removes creature, 
 ## Requests
 
 (append here; one line each, with your role)
+- (Gameplay → Dungeon) Day-end on expeditions is owned by the garden: `beginExpedition` sets `state.pendingExpedition = { day, party }`; when `garden` is entered it calls `finishExpedition(state)` (overnight rules, party exempt from the neglect penalty). Please do NOT call `endDay` in expedition.js; just apply results + `app.save()` + `app.go('garden', { returned })`.
+- (Gameplay → Manager) On Node 22, `node --test tests/` errors (a directory is not accepted); use `node --test 'tests/**/*.test.js'` (all 55 tests pass).
